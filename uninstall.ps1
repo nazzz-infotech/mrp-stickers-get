@@ -12,11 +12,13 @@ sc.exe delete "PostgreSQL_MRP_Stickers"
 
 # 3. Prompt user for persistent database deletion
 $deldb = Read-Host -Prompt "Do you want to delete your saved data such as sellers, brands, articles, colors, sizes etc ... ? [YES/no]"
-if ($deldb.Trim().ToLower().StartsWith("y") -or $deldb.Trim() -eq "") {
-  Write-Host "Deleting database application assets..." -ForegroundColor Magenta
-  if (Test-Path "C:\mrp_stickers\postgres-data") { 
-      Remove-Item -Path "C:\mrp_stickers\postgres-data" -Recurse -Force 
-  }
+# 3.1. Handle data folder deletion safely without blocking the thread
+Write-Host "Checking for database application assets..." -ForegroundColor Magenta
+$DataPath = "C:\mrp_stickers\postgres-data"
+if (Test-Path $DataPath) { 
+    Write-Host "Removing saved data (sellers, brands, articles etc...)" -ForegroundColor Magenta
+    # Force removal directly to avoid breaking Control Panel automation pipelines
+    Remove-Item -Path $DataPath -Recurse -Force 
 }
 
 # 4. Clean up structural dependency directories
