@@ -38,17 +38,17 @@ Write-Host "Removing Windows shortcuts and registration data..." -ForegroundColo
 
 if (Test-Path $RegistryKeyPath) {
     Remove-Item -Path $RegistryKeyPath -Recurse -Force
-    Write-Host "✓ Removed application from Windows Registry." -ForegroundColor Green
+    Write-Host "[OK] Removed application from Windows Registry." -ForegroundColor Green
 }
 
 if (Test-Path $PublicDesktopShortcut) {
     Remove-Item -Path $PublicDesktopShortcut -Force
-    Write-Host "✓ Deleted Desktop shortcut." -ForegroundColor Green
+    Write-Host "[OK] Deleted Desktop shortcut." -ForegroundColor Green
 }
 
 if (Test-Path $PublicStartMenuShortcut) {
     Remove-Item -Path $PublicStartMenuShortcut -Force
-    Write-Host "✓ Deleted Start Menu shortcut." -ForegroundColor Green
+    Write-Host "[OK] Deleted Start Menu shortcut." -ForegroundColor Green
 }
 
 # 6. Safely Delete Application Binaries and Self-Destruct
@@ -61,7 +61,7 @@ if (Test-Path $InstallDir) {
     
     # Delete the main Program Files directory
     Remove-Item -Path $InstallDir -Recurse -Force 
-    Write-Host "✓ Main application folder purged." -ForegroundColor Green
+    Write-Host "[OK] Main application folder purged." -ForegroundColor Green
 }
 
 # 7. Check if C:\mrp_stickers is empty (except for this script) and wipe it completely
