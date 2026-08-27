@@ -1,81 +1,230 @@
+$ErrorActionPreference = "SilentlyContinue"
+
 Write-Host "Uninstalling MRP Stickers ..." -ForegroundColor Red
 
-# 1. Kill the app processes first (Silently ignores if they aren't running)
-Write-Host "Closing running applications..." -ForegroundColor Cyan
-Get-Process -Name "mrp_stickers" -ErrorAction SilentlyContinue | Stop-Process -Force
-Get-Process -Name "php" -ErrorAction SilentlyContinue | Stop-Process -Force
-
-# 2. Stop and delete the database background service
-Write-Host "Stopping and removing database service..." -ForegroundColor Cyan
-net stop "PostgreSQL_MRP_Stickers" 2>$null
-sc.exe delete "PostgreSQL_MRP_Stickers"
-
-# 3. Prompt user for persistent database deletion
-$deldb = Read-Host -Prompt "Do you want to delete your saved data such as sellers, brands, articles, colors, sizes etc ... ? [YES/no]"
-# 3.1. Handle data folder deletion safely without blocking the thread
-Write-Host "Checking for database application assets..." -ForegroundColor Magenta
-$DataPath = "C:\mrp_stickers\postgres-data"
-if (Test-Path $DataPath) { 
-    Write-Host "Removing saved data (sellers, brands, articles etc...)" -ForegroundColor Magenta
-    # Force removal directly to avoid breaking Control Panel automation pipelines
-    Remove-Item -Path $DataPath -Recurse -Force 
-}
-
-# 4. Clean up structural dependency directories
-Write-Host "Removing environment dependencies..." -ForegroundColor Cyan
-foreach ($item in @("adminer", "php", "pgsqlr", "connection.txt")) {
-    $targetPath = "C:\mrp_stickers\$item"
-    if (Test-Path $targetPath) { Remove-Item -Path $targetPath -Recurse -Force }
-}
-
-# 5. Unregister App from Control Panel and Windows Apps List
-$AppName = "MRP Stickers"
-$RegistryKeyPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MRP-Stickers"
-$PublicDesktopShortcut = "$env:PUBLIC\Desktop\$AppName.lnk"
-$PublicStartMenuShortcut = "$env:PROGRAMDATA\Microsoft\Windows\Start Menu\Programs\$AppName.lnk"
-
-Write-Host "Removing Windows shortcuts and registration data..." -ForegroundColor Cyan
-
-if (Test-Path $RegistryKeyPath) {
-    Remove-Item -Path $RegistryKeyPath -Recurse -Force
-    Write-Host "[OK] Removed application from Windows Registry." -ForegroundColor Green
-}
-
-if (Test-Path $PublicDesktopShortcut) {
-    Remove-Item -Path $PublicDesktopShortcut -Force
-    Write-Host "[OK] Deleted Desktop shortcut." -ForegroundColor Green
-}
-
-if (Test-Path $PublicStartMenuShortcut) {
-    Remove-Item -Path $PublicStartMenuShortcut -Force
-    Write-Host "[OK] Deleted Start Menu shortcut." -ForegroundColor Green
-}
-
-# 6. Safely Delete Application Binaries and Self-Destruct
-Write-Host "Purging application binaries..." -ForegroundColor Cyan
+$RootDir = "C:\mrp_stickers"
 $InstallDir = "C:\Program Files\MRP-Stickers"
+$ServiceName = "PostgreSQL_MRP_Stickers"
+$AppName = "MRP Stickers"
 
-if (Test-Path $InstallDir) {
-    # Move the current terminal context away from any target directories
-    Set-Location -Path "C:\"
-    
-    # Delete the main Program Files directory
-    Remove-Item -Path $InstallDir -Recurse -Force 
-    Write-Host "[OK] Main application folder purged." -ForegroundColor Green
+# ------------------------------------------------------------
+# 1. Close running application processes
+# ------------------------------------------------------------
+
+Write-Host "Closing running applications..." -ForegroundColor Cyan
+
+Get-Process -Name "mrp_stickers" -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+
+Get-Process -Name "php" -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+
+
+# ------------------------------------------------------------
+# 2. Stop and remove PostgreSQL service
+# ------------------------------------------------------------
+
+Write-Host "Stopping and removing database service..." -ForegroundColor Cyan
+
+$PgService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+
+if ($null -ne $PgService) {
+
+    if ($PgService.Status -ne "Stopped") {
+
+        Stop-Service `
+            -Name $ServiceName `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+        try {
+            $PgService.WaitForStatus(
+                "Stopped",
+                [TimeSpan]::FromSeconds(10)
+            )
+        }
+        catch {
+        }
+    }
+
+    sc.exe delete $ServiceName | Out-Null
+
+    Write-Host "[OK] Database service removed." -ForegroundColor Green
+}
+else {
+    Write-Host "[OK] Database service was not installed." -ForegroundColor DarkGray
 }
 
-# 7. Check if C:\mrp_stickers is empty (except for this script) and wipe it completely
-Write-Host "Finishing up uninstallation..." -ForegroundColor Cyan
 
-# Point to this script's path and its parent directory
-$MyScriptPath = $MyInvocation.MyCommand.Path
-$MyParentDir = "C:\mrp_stickers"
+# ------------------------------------------------------------
+# 3. Remove PostgreSQL data
+# ------------------------------------------------------------
 
-# Shift terminal context to the root system drive
+Write-Host "Removing database data..." -ForegroundColor Cyan
+
+$DataPath = Join-Path $RootDir "postgres-data"
+
+if (Test-Path -LiteralPath $DataPath) {
+
+    Remove-Item `
+        -LiteralPath $DataPath `
+        -Recurse `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+    Write-Host "[OK] Database data removed." -ForegroundColor Green
+}
+else {
+    Write-Host "[OK] Database data was already removed." -ForegroundColor DarkGray
+}
+
+
+# ------------------------------------------------------------
+# 4. Remove bundled dependencies and generated files
+# ------------------------------------------------------------
+
+Write-Host "Removing environment dependencies..." -ForegroundColor Cyan
+
+$ItemsToDelete = @(
+    "adminer",
+    "php",
+    "pgsql",
+    "connection.txt",
+    "postgres.log"
+)
+
+foreach ($Item in $ItemsToDelete) {
+
+    $TargetPath = Join-Path $RootDir $Item
+
+    if (Test-Path -LiteralPath $TargetPath) {
+
+        Remove-Item `
+            -LiteralPath $TargetPath `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue
+
+        Write-Host "[OK] Removed $Item." -ForegroundColor Green
+    }
+}
+
+
+# ------------------------------------------------------------
+# 5. Remove Windows uninstall registration
+# ------------------------------------------------------------
+
+Write-Host "Removing Windows registration..." -ForegroundColor Cyan
+
+$RegistryKeyPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\MRP-Stickers"
+
+if (Test-Path -LiteralPath $RegistryKeyPath) {
+
+    Remove-Item `
+        -LiteralPath $RegistryKeyPath `
+        -Recurse `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+    Write-Host "[OK] Removed application from Windows Apps list." -ForegroundColor Green
+}
+
+
+# ------------------------------------------------------------
+# 6. Remove shortcuts
+# ------------------------------------------------------------
+
+Write-Host "Removing shortcuts..." -ForegroundColor Cyan
+
+$DesktopShortcut = Join-Path $env:PUBLIC "Desktop\$AppName.lnk"
+
+$StartMenuShortcut = Join-Path `
+    $env:PROGRAMDATA `
+    "Microsoft\Windows\Start Menu\Programs\$AppName.lnk"
+
+if (Test-Path -LiteralPath $DesktopShortcut) {
+
+    Remove-Item `
+        -LiteralPath $DesktopShortcut `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+    Write-Host "[OK] Desktop shortcut removed." -ForegroundColor Green
+}
+
+if (Test-Path -LiteralPath $StartMenuShortcut) {
+
+    Remove-Item `
+        -LiteralPath $StartMenuShortcut `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+    Write-Host "[OK] Start Menu shortcut removed." -ForegroundColor Green
+}
+
+
+# ------------------------------------------------------------
+# 7. Remove installed application binaries
+# ------------------------------------------------------------
+
+Write-Host "Removing application files..." -ForegroundColor Cyan
+
 Set-Location -Path "C:\"
 
-Write-Host "Cleanup complete! Closing window to finalize removal." -ForegroundColor Green
+if (Test-Path -LiteralPath $InstallDir) {
 
-# Launch a background CMD process that waits 2 seconds for PowerShell to exit, 
-# then deletes this script, and removes the parent directory.
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c timeout /t 2 /nobreak > nul && del /f /q `"$MyScriptPath`" && rd /s /q `"$MyParentDir`"" -WindowStyle Hidden
+    Remove-Item `
+        -LiteralPath $InstallDir `
+        -Recurse `
+        -Force `
+        -ErrorAction SilentlyContinue
+
+    Write-Host "[OK] Application binaries removed." -ForegroundColor Green
+}
+else {
+    Write-Host "[OK] Application binaries were already removed." -ForegroundColor DarkGray
+}
+
+
+# ------------------------------------------------------------
+# 8. Preserve C:\mrp_stickers and sizes.txt
+# ------------------------------------------------------------
+
+Write-Host "Preserving user configuration files..." -ForegroundColor Cyan
+
+$SizesFile = Join-Path $RootDir "sizes.txt"
+
+if (Test-Path -LiteralPath $SizesFile) {
+    Write-Host "[OK] sizes.txt preserved." -ForegroundColor Green
+}
+else {
+    Write-Host "[INFO] sizes.txt was not found." -ForegroundColor DarkGray
+}
+
+
+# ------------------------------------------------------------
+# 9. Self-delete this uninstall script only
+# ------------------------------------------------------------
+
+Write-Host "Finishing uninstallation..." -ForegroundColor Cyan
+
+$MyScriptPath = $MyInvocation.MyCommand.Path
+
+Set-Location -Path "C:\"
+
+Write-Host ""
+Write-Host "MRP Stickers was uninstalled successfully." -ForegroundColor Green
+Write-Host "C:\mrp_stickers was preserved." -ForegroundColor Green
+Write-Host "sizes.txt was not deleted." -ForegroundColor Green
+
+if (-not [string]::IsNullOrWhiteSpace($MyScriptPath)) {
+
+    $DeleteCommand = 'timeout /t 2 /nobreak > nul && del /f /q "' + $MyScriptPath + '"'
+
+    Start-Process `
+        -FilePath "cmd.exe" `
+        -ArgumentList "/c", $DeleteCommand `
+        -WindowStyle Hidden
+}
+
+exit 0
